@@ -144,6 +144,11 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
         return 0;
     }
 
+#ifdef CONFIG_KSU_SUSFS
+    schedule_work(&susfs_extra_works);
+    susfs_set_current_proc_umounted();
+#endif
+
     if (!ksu_uid_should_umount(new_uid) && !is_isolated_process(new_uid)) {
         return 0;
     }
@@ -152,12 +157,12 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
 
     // in susfs's implementation, ksu_kernel_umount is ignored, so this keeps the same behavior.
     if (!ksu_kernel_umount_enabled) {
-        goto skip_umount_task;
+        return 0;
     }
 
     // if there isn't any module mounted, just ignore it!
     if (!ksu_module_mounted) {
-        goto skip_umount_task;
+        return 0;
     }
 
     // umount the target mnt
@@ -173,13 +178,6 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
     up_read(&mount_list_lock);
 
     revert_creds(saved);
-
-skip_umount_task:
-    // do susfs setuid when susfs enabled
-#ifdef CONFIG_KSU_SUSFS
-    schedule_work(&susfs_extra_works);
-    susfs_set_current_proc_umounted();
-#endif
 
     return 0;
 }
