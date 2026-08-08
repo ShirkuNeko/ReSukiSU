@@ -144,10 +144,22 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
         return 0;
     }
 
+    // - susfs's TIF_PROC_UMOUNTED marking (and the sus_path_loop re-flag
+    //   work) must NOT be gated on ksu_uid_should_umount(): that function
+    //   folds together two unrelated things - (a) whether this uid is
+    //   genuinely granted su, and (b) whether the (default) profile wants
+    //   module bind-mounts physically removed via umount_modules. Hiding
+    //   features (sus_path / sus_mount / sus_map / open_redirect) must
+    //   still apply to every ordinary non-root app even when
+    //   umount_modules is turned off - only apps that are actually
+    //   root-granted (or manager / webview zygote) should be excluded, so
+    //   this is gated on ksu_uid_is_root_granted() instead.
+    if (!ksu_uid_is_root_granted(new_uid)) {
 #ifdef CONFIG_KSU_SUSFS
-    schedule_work(&susfs_extra_works);
-    susfs_set_current_proc_umounted();
+        schedule_work(&susfs_extra_works);
+        susfs_set_current_proc_umounted();
 #endif
+    }
 
     if (!ksu_uid_should_umount(new_uid) && !is_isolated_process(new_uid)) {
         return 0;
