@@ -346,6 +346,47 @@ bool ksu_uid_should_umount(uid_t uid)
 #endif
 }
 
+bool ksu_uid_is_root_granted(uid_t uid)
+{
+    struct app_profile *profile;
+    bool res;
+
+    if (unlikely(ksu_is_manager_uid(uid))) {
+        // manager is always privileged, never mark it as susfs-umounted
+        return true;
+    }
+    if (unlikely(uid == WEBVIEW_ZYGOTE_UID)) {
+        // webview zygote is never a real app process, treat it like manager
+        return true;
+    }
+#ifdef CONFIG_KSU_DISABLE_POLICY
+    return __ksu_is_allow_uid(uid);
+#else
+    rcu_read_lock();
+    profile = ksu_get_app_profile(uid);
+    if (!profile) {
+        // no app profile found -> not granted root
+        res = false;
+    } else {
+        // - Unlike ksu_uid_should_umount(), this ONLY reflects whether the
+        //   uid is actually granted su, and must NOT fold in the
+        //   umount_modules policy toggle. umount_modules only controls
+        //   whether module bind-mounts get physically removed for
+        //   non-root apps; it has nothing to do with whether the process
+        //   should be excluded from susfs's TIF_PROC_UMOUNTED marking.
+        //   Conflating the two here previously caused every non-root app
+        //   to also lose su-hook/privilege status whenever susfs marking
+        //   was made unconditional to fix sus_path hiding.
+        res = profile->allow_su;
+    }
+    rcu_read_unlock();
+
+    if (profile)
+        ksu_put_app_profile(profile);
+    return res;
+#endif
+}
+
 void ksu_put_app_profile(struct app_profile *profile)
 {
     struct perm_data *p = container_of(profile, struct perm_data, profile);
